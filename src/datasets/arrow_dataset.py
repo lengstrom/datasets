@@ -1506,6 +1506,7 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
         fs="deprecated",
         keep_in_memory: Optional[bool] = None,
         storage_options: Optional[dict] = None,
+        as_iterable: bool = False
     ) -> "Dataset":
         """
         Loads a dataset that was previously saved using [`save_to_disk`] from a dataset directory, or from a
@@ -1616,30 +1617,50 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
         )
         keep_in_memory = keep_in_memory if keep_in_memory is not None else is_small_dataset(dataset_size)
         table_cls = InMemoryTable if keep_in_memory else MemoryMappedTable
-        arrow_table = concat_tables(
-            table_cls.from_file(path_join(dest_dataset_path, data_file["filename"]))
-            for data_file in state["_data_files"]
-        )
-
         split = state["_split"]
         split = Split(split) if split is not None else split
 
-        dataset = Dataset(
-            arrow_table=arrow_table,
-            info=dataset_info,
-            split=split,
-            fingerprint=state["_fingerprint"],
-        )
+        # arrow table: concatenated table of all data files, data files according to
+        #  "data-00000-of-01312.arrow" etc
+        # dataset_info:  ALOT of random metadata about the dataset
+        # split: which split to load?
+        # fingerprint: hash of files; we can just set it to None
 
-        format = {
-            "type": state["_format_type"],
-            "format_kwargs": state["_format_kwargs"],
-            "columns": state["_format_columns"],
-            "output_all_columns": state["_output_all_columns"],
-        }
-        dataset = dataset.with_format(**format)
+        def make_dataset_given_table(arrow_table):
+            dataset = Dataset(
+                arrow_table=arrow_table,
+                info=dataset_info,
+                split=split,
+                fingerprint=state["_fingerprint"],
+            )
 
-        return dataset
+            format = {
+                "type": state["_format_type"],
+                "format_kwargs": state["_format_kwargs"],
+                "columns": state["_format_columns"],
+                "output_all_columns": state["_output_all_columns"],
+            }
+            dataset = dataset.with_format(**format)
+            return dataset
+
+        arrow_files = [path_join(dest_dataset_path, data_file["filename"]) 
+                       for data_file in state["_data_files"]]
+
+        if not as_iterable:
+            tables = [table_cls.from_file(f) for f in arrow_files]
+            arrow_table = concat_tables(tables)
+            return make_dataset_given_table(arrow_table)
+        else:
+            from .iterable_dataset import IterableDataset
+            def gen(shards):
+                for f in shards:
+                    shard = table_cls.from_file(f)
+                    shard_ds = make_dataset_given_table(shard)
+                    for x in shard_ds:
+                        yield x
+
+            kw = {"shards": arrow_files}
+            return IterableDataset.from_generator(gen, gen_kwargs=kw)
 
     @property
     def data(self) -> Table:
