@@ -1237,8 +1237,7 @@ class IterableDataset(DatasetInfoMixin):
             format_type=self._format_type,
             shuffling=copy.deepcopy(self._shuffling),
             distributed=copy.deepcopy(self._distributed),
-            token_per_repo_id=self._token_per_repo_id,
-        )
+            token_per_repo_id=self._token_per_repo_id)
 
     def shuffle(
         self, seed=None, generator: Optional[np.random.Generator] = None, buffer_size: int = 1000

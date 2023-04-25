@@ -1506,7 +1506,7 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
         fs="deprecated",
         keep_in_memory: Optional[bool] = None,
         storage_options: Optional[dict] = None,
-        as_iterable: bool = False
+        load_as='dataset',
     ) -> "Dataset":
         """
         Loads a dataset that was previously saved using [`save_to_disk`] from a dataset directory, or from a
@@ -1548,6 +1548,8 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
         >>> ds = load_from_disk("path/to/dataset/directory")
         ```
         """
+        assert load_as in {'dataset', 'iterable', 'shards'}
+
         if fs != "deprecated":
             warnings.warn(
                 "'fs' was deprecated in favor of 'storage_options' in version 2.8.0 and will be removed in 3.0.0.\n"
@@ -1646,11 +1648,21 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
         arrow_files = [path_join(dest_dataset_path, data_file["filename"]) 
                        for data_file in state["_data_files"]]
 
-        if not as_iterable:
+        # sort the files by shard id
+        # data-00332-of-01312.arrow
+        ix_extractor = lambda x: int(x.split('-')[1])
+        try:
+            ix_extractor(arrow_files[0])
+        except:
+            ix_extractor = lambda x: x
+
+        arrow_files = sorted(arrow_files, key=lambda x: int(x.split('-')[1]))
+
+        if load_as == 'dataset':
             tables = [table_cls.from_file(f) for f in arrow_files]
             arrow_table = concat_tables(tables)
             return make_dataset_given_table(arrow_table)
-        else:
+        elif load_as == 'iterable':
             from .iterable_dataset import IterableDataset
             def gen(shards):
                 for f in shards:
@@ -1661,6 +1673,12 @@ class Dataset(DatasetInfoMixin, IndexableMixin, TensorflowDatasetMixin):
 
             kw = {"shards": arrow_files}
             return IterableDataset.from_generator(gen, gen_kwargs=kw)
+        elif load_as == 'shards':
+            def dataset_from_filepath(fp):
+                shard = table_cls.from_file(fp)
+                return make_dataset_given_table(shard)
+
+            return dataset_from_filepath, arrow_files
 
     @property
     def data(self) -> Table:

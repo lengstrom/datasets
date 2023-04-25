@@ -1815,7 +1815,7 @@ def load_dataset(
 
 def load_from_disk(
     dataset_path: str, fs="deprecated", keep_in_memory: Optional[bool] = None, storage_options: Optional[dict] = None,
-    as_iterable=False) -> Union[Dataset, DatasetDict]:
+    load_as='dataset') -> Union[Dataset, DatasetDict]:
     """
     Loads a dataset that was previously saved using [`~Dataset.save_to_disk`] from a dataset directory, or
     from a filesystem using either [`~datasets.filesystems.S3FileSystem`] or any implementation of
@@ -1885,10 +1885,10 @@ def load_from_disk(
     ):
         return Dataset.load_from_disk(dataset_path, keep_in_memory=keep_in_memory,
                                       storage_options=storage_options,
-                                      as_iterable=as_iterable)
+                                      load_as=load_as)
     elif fs.isfile(path_join(dest_dataset_path, config.DATASETDICT_JSON_FILENAME)):
-        if as_iterable:
-            raise ValueError('`as_iterable` is not supported for `DatasetDict`')
+        if load_as:
+            raise ValueError('`load_as` is not supported for `DatasetDict`')
 
         return DatasetDict.load_from_disk(dataset_path, keep_in_memory=keep_in_memory, storage_options=storage_options)
     else:
